@@ -34,7 +34,7 @@
 @property (nonatomic, strong) TVICameraCapturer* camera;
 @property (nonatomic, strong) TVILocalVideoTrack* localVideoTrack;
 @property (nonatomic, strong) TVILocalAudioTrack* localAudioTrack;
-@property (nonatomic, strong) TVIRemoteParticipant* participant;
+@property (nonatomic, strong) TVIRemoteParticipant* remoteParticipant;
 @property (nonatomic, weak) TVIVideoView* remoteView;
 @property (nonatomic, strong) TVIRoom* room;
 
@@ -117,15 +117,12 @@
     self.camera = [[TVICameraCapturer alloc] initWithSource:TVICameraCaptureSourceFrontCamera delegate:self];
     self.localVideoTrack = [TVILocalVideoTrack trackWithCapturer:self.camera];
     if (!self.localVideoTrack) {
-        //     [self logMessage:@"Failed to add video track"];
+        [self logMessage:@"Failed to add video track"];
     } else {
         // Add renderer to video track for local preview
         [self.localVideoTrack addRenderer:self.previewView];
-
-        //    [self logMessage:@"Video track created"];
-
-        UITapGestureRecognizer* tap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                              action:@selector(flipCamera)];
+        [self logMessage:@"Video track created"];
+        UITapGestureRecognizer* tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(flipCamera)];
         [self.previewView addGestureRecognizer:tap];
     }
 }
@@ -161,7 +158,7 @@
 
 - (void)doConnect:(NSString*)room {
     if ([self.accessToken isEqualToString:@"TWILIO_ACCESS_TOKEN"]) {
-        //   [self logMessage:@"Please provide a valid token to connect to a room"];
+        [self logMessage:@"Please provide a valid token to connect to a room"];
         return;
     }
     // Prepare local media which we will share with Room Participants.
@@ -181,8 +178,7 @@
 
     // Connect to the Room using the options we provided.
     self.room = [TwilioVideo connectWithOptions:connectOptions delegate:self];
-
-    //   [self logMessage:[NSString stringWithFormat:@"Attempting to connect to room %@", room]];
+    [self logMessage:[NSString stringWithFormat:@"Attempting to connect to room %@", room]];
 }
 
 - (void)setupRemoteView {
@@ -236,20 +232,22 @@
 }
 
 - (void)cleanupRemoteParticipant {
-    if (self.participant) {
-        if ([self.participant.videoTracks count] > 0) {
+    if (self.remoteParticipant) {
+        if ([self.remoteParticipant.videoTracks count] > 0) {
             // TODO(jep): I'm not sure this is necessary with version 2.x of the TwilioVideo plugin.
-//            [self.participant.remoteVideoTracks[0] removeRenderer:self.remoteView];
+            //            [self.participant.remoteVideoTracks[0] removeRenderer:self.remoteView];
             [self.remoteView removeFromSuperview];
         }
-        self.participant = nil;
+        self.remoteParticipant = nil;
         if (_closeVideo) { _closeVideo(); }
     }
 }
 
 - (void)logMessage:(NSString*)msg {
-    NSLog(@"%@", msg);
+#ifdef DEBUG
+    NSLog(@"TWILIO PLUGIN LOG: %@", msg);
     self.messageLabel.text = msg;
+#endif
 }
 
 #pragma mark - UITextFieldDelegate
@@ -258,102 +256,103 @@
 
 - (void)didConnectToRoom:(TVIRoom*)room {
     // At the moment, this example only supports rendering one Participant at a time.
-
-    // [self logMessage:[NSString stringWithFormat:@"Connected to room %@ as %@", room.name, room.localParticipant.identity]];
+    [self logMessage:[NSString stringWithFormat:@"Connected to room %@ as %@", room.name, room.localParticipant.identity]];
     [self logMessage:@"Waiting on participant to join"];
 
     if (room.remoteParticipants.count > 0) {
-        self.participant = room.remoteParticipants[0];
-        self.participant.delegate = self;
-        [self logMessage:@" "];
+        self.remoteParticipant = room.remoteParticipants[0];
+        self.remoteParticipant.delegate = self;
+        [self logMessage:@"Remote participant joined"];
     }
 }
 
 - (void)room:(TVIRoom*)room didDisconnectWithError:(nullable NSError*)error {
-    // [self logMessage:[NSString stringWithFormat:@"Disconncted from room %@, error = %@", room.name, error]];
-
+    [self logMessage:[NSString stringWithFormat:@"Disconncted from room %@, error = %@", room.name, error]];
     [self cleanupRemoteParticipant];
     self.room = nil;
-
     [self showRoomUI:NO];
 }
 
-- (void)room:(TVIRoom*)room didFailToConnectWithError:(nonnull NSError*)error{
-    //  [self logMessage:[NSString stringWithFormat:@"Failed to connect to room, error = %@", error]];
-
+- (void)room:(TVIRoom*)room didFailToConnectWithError:(NSError*)error {
+    [self logMessage:[NSString stringWithFormat:@"Failed to connect to room, error = %@", error]];
     self.room = nil;
     [self showRoomUI:NO];
 }
 
-- (void)room:(TVIRoom*)room participantDidConnect:(TVIParticipant*)participant {
-    if (!self.participant) {
-        self.participant = participant;
-        self.participant.delegate = self;
+- (void)room:(TVIRoom*)room participantDidConnect:(TVIRemoteParticipant*)participant {
+    if (!self.remoteParticipant) {
+        self.remoteParticipant = participant;
+        self.remoteParticipant.delegate = self;
     }
-    //   [self logMessage:[NSString stringWithFormat:@"Room %@ participant %@ connected", room.name, participant.identity]];
-    [self logMessage:@" "];
+    [self logMessage:[NSString stringWithFormat:@"Room %@ participant %@ connected\n", room.name, participant.identity]];
 }
 
-- (void)room:(TVIRoom*)room participantDidDisconnect:(TVIParticipant*)participant {
-    if (self.participant == participant) {
+- (void)room:(TVIRoom*)room participantDidDisconnect:(TVIRemoteParticipant*)participant {
+    if (self.remoteParticipant == participant) {
         [self cleanupRemoteParticipant];
     }
-    // [self logMessage:[NSString stringWithFormat:@"Room %@ participant %@ disconnected", room.name, participant.identity]];
+    [self logMessage:[NSString stringWithFormat:@"Room %@ participant %@ disconnected", room.name, participant.identity]];
     [self logMessage:@"Participant disconnected"];
 }
 
-#pragma mark - TVIParticipantDelegate
+#pragma mark - TVIRemoteParticipantDelegate
 
-- (void)participant:(TVIParticipant*)participant addedVideoTrack:(TVIVideoTrack*)videoTrack {
-    //   [self logMessage:[NSString stringWithFormat:@"Participant %@ added video track.", participant.identity]];
+- (void)subscribedToVideoTrack:(TVIRemoteVideoTrack*)videoTrack
+                   publication:(TVIRemoteVideoTrackPublication*)publication
+                forParticipant:(TVIRemoteParticipant*)participant {
+    // We are subscribed to the remote Participant's audio Track. We will start receiving the
+    // remote Participant's video frames now.
 
-    if (self.participant == participant) {
+    [self logMessage:[NSString stringWithFormat:@"Subscribed to %@ video track for Participant %@",
+                      publication.trackName, participant.identity]];
+
+    if (self.remoteParticipant == participant) {
         [self setupRemoteView];
         [videoTrack addRenderer:self.remoteView];
     }
+
 }
 
-- (void)participant:(TVIParticipant*)participant removedVideoTrack:(TVIVideoTrack*)videoTrack {
-    //   [self logMessage:[NSString stringWithFormat:@"Participant %@ removed video track.", participant.identity]];
+- (void)unsubscribedFromVideoTrack:(TVIRemoteVideoTrack*)videoTrack
+                       publication:(TVIRemoteVideoTrackPublication*)publication
+                    forParticipant:(TVIRemoteParticipant*)participant {
 
-    if (self.participant == participant) {
+    // We are unsubscribed from the remote Participant's video Track. We will no longer receive the
+    // remote Participant's video.
+
+    [self logMessage:[NSString stringWithFormat:@"Unsubscribed from %@ video track for Participant %@",
+                      publication.trackName, participant.identity]];
+
+    if (self.remoteParticipant == participant) {
         [videoTrack removeRenderer:self.remoteView];
         [self.remoteView removeFromSuperview];
     }
+
 }
 
-- (void)participant:(TVIParticipant*)participant addedAudioTrack:(TVIAudioTrack*)audioTrack {
-    //  [self logMessage:[NSString stringWithFormat:@"Participant %@ added audio track.", participant.identity]];
+- (void)remoteParticipant:(TVIRemoteParticipant*)participant publishedAudioTrack:(TVIRemoteAudioTrackPublication*)publication {
+    [self logMessage:[NSString stringWithFormat:@"Participant %@ published %@ audio track.",
+                      participant.identity, publication.trackName]];
 }
 
-- (void)participant:(TVIParticipant*)participant removedAudioTrack:(TVIAudioTrack*)audioTrack {
-    //  [self logMessage:[NSString stringWithFormat:@"Participant %@ removed audio track.", participant.identity]];
+- (void)remoteParticipant:(TVIRemoteParticipant*)participant unpublishedAudioTrack:(TVIRemoteAudioTrackPublication*)publication {
+    [self logMessage:[NSString stringWithFormat:@"Participant %@ unpublished %@ audio track.",
+                      participant.identity, publication.trackName]];
 }
 
-- (void)participant:(TVIParticipant*)participant enabledTrack:(TVITrack*)track {
-    NSString* type = @"";
-    if ([track isKindOfClass:[TVIAudioTrack class]]) {
-        type = @"audio";
-    } else {
-        type = @"video";
-        if (participant == self.participant) {
-            _remoteView.hidden = NO;
-        }
+- (void)remoteParticipant:(TVIRemoteParticipant*)participant enabledVideoTrack:(TVIRemoteVideoTrackPublication*)publication {
+    if (participant == self.remoteParticipant) {
+        _remoteView.hidden = NO;
     }
-    //  [self logMessage:[NSString stringWithFormat:@"Participant %@ enabled %@ track.", participant.identity, type]];
+    [self logMessage:[NSString stringWithFormat:@"Participant %@ enabled video track.", participant.identity]];
 }
 
-- (void)participant:(TVIParticipant*)participant disabledTrack:(TVITrack*)track {
-    NSString* type = @"";
-    if ([track isKindOfClass:[TVIAudioTrack class]]) {
-        type = @"audio";
-    } else {
-        type = @"video";
-        if (participant == self.participant) {
-            _remoteView.hidden = YES;
-        }
+- (void)remoteParticipant:(TVIRemoteParticipant *)participant
+       disabledVideoTrack:(TVIRemoteVideoTrackPublication *)publication {
+    if (participant == self.remoteParticipant) {
+        _remoteView.hidden = YES;
     }
-    //  [self logMessage:[NSString stringWithFormat:@"Participant %@ disabled %@ track.", participant.identity, type]];
+    [self logMessage:[NSString stringWithFormat:@"Participant %@ disabled video track.", participant.identity]];
 }
 
 #pragma mark - TVIVideoViewDelegate
@@ -370,4 +369,5 @@
 }
 
 @end
+
 
